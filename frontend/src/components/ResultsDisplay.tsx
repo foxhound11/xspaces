@@ -1,6 +1,7 @@
 import ReactMarkdown from 'react-markdown';
-import { Copy, Check, MessageSquare, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Copy, Check, MessageSquare, AlertCircle, CheckCircle2, Film } from 'lucide-react';
 import { useState } from 'react';
+import { ClipStudio } from './ClipStudio';
 
 interface ThreadResult {
     thread: string;
@@ -12,12 +13,14 @@ interface ThreadResult {
 interface ResultsDisplayProps {
     markdown: string;
     threadResult?: ThreadResult | null;
+    audioPath?: string;
 }
 
-export function ResultsDisplay({ markdown, threadResult }: ResultsDisplayProps) {
+export function ResultsDisplay({ markdown, threadResult, audioPath }: ResultsDisplayProps) {
     const [copiedMd, setCopiedMd] = useState(false);
     const [copiedThread, setCopiedThread] = useState(false);
     const [activeTab, setActiveTab] = useState<'segments' | 'thread'>('segments');
+    const [clipStudioOpen, setClipStudioOpen] = useState(false);
 
     const handleCopyMd = () => {
         navigator.clipboard.writeText(markdown);
@@ -41,8 +44,8 @@ export function ResultsDisplay({ markdown, threadResult }: ResultsDisplayProps) 
                 <button
                     onClick={() => setActiveTab('segments')}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all font-medium ${activeTab === 'segments'
-                            ? 'bg-secondary/20 text-secondary border border-secondary/50'
-                            : 'bg-gray-800/30 text-gray-400 hover:text-gray-200 border border-transparent'
+                        ? 'bg-secondary/20 text-secondary border border-secondary/50'
+                        : 'bg-gray-800/30 text-gray-400 hover:text-gray-200 border border-transparent'
                         }`}
                 >
                     <MessageSquare className="w-4 h-4" />
@@ -51,8 +54,8 @@ export function ResultsDisplay({ markdown, threadResult }: ResultsDisplayProps) 
                 <button
                     onClick={() => setActiveTab('thread')}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all font-medium ${activeTab === 'thread'
-                            ? 'bg-secondary/20 text-secondary border border-secondary/50'
-                            : 'bg-gray-800/30 text-gray-400 hover:text-gray-200 border border-transparent'
+                        ? 'bg-secondary/20 text-secondary border border-secondary/50'
+                        : 'bg-gray-800/30 text-gray-400 hover:text-gray-200 border border-transparent'
                         }`}
                 >
                     <MessageSquare className="w-4 h-4" />
@@ -81,6 +84,19 @@ export function ResultsDisplay({ markdown, threadResult }: ResultsDisplayProps) 
                     <div className="prose prose-invert max-w-none prose-headings:text-gray-100 prose-a:text-primary prose-strong:text-secondary prose-table:border-collapse prose-th:px-4 prose-th:py-2 prose-td:px-4 prose-td:py-2 prose-tr:border-b prose-tr:border-gray-800">
                         <ReactMarkdown>{markdown}</ReactMarkdown>
                     </div>
+
+                    {/* Create Clip Button */}
+                    {audioPath && (
+                        <div className="mt-6 pt-6 border-t border-gray-700/50">
+                            <button
+                                onClick={() => setClipStudioOpen(true)}
+                                className="flex items-center gap-2 px-6 py-3 rounded-xl bg-secondary/20 border border-secondary/50 text-secondary hover:bg-secondary/30 transition-all font-medium"
+                            >
+                                <Film className="w-5 h-5" />
+                                Create Clip from Segments
+                            </button>
+                        </div>
+                    )}
                 </>
             )}
 
@@ -92,8 +108,8 @@ export function ResultsDisplay({ markdown, threadResult }: ResultsDisplayProps) 
                             <h2 className="text-2xl font-bold text-white">Tweet Thread</h2>
                             {threadResult && (
                                 <span className={`text-xs px-2 py-1 rounded-full ${threadResult.approved
-                                        ? 'bg-green-500/20 text-green-300 border border-green-500/30'
-                                        : 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30'
+                                    ? 'bg-green-500/20 text-green-300 border border-green-500/30'
+                                    : 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30'
                                     }`}>
                                     {threadResult.approved ? '✓ Approved' : `⚠ ${threadResult.iterations} iterations`}
                                 </span>
@@ -140,6 +156,17 @@ export function ResultsDisplay({ markdown, threadResult }: ResultsDisplayProps) 
                         </details>
                     )}
                 </>
+            )}
+
+            {/* Clip Studio Modal */}
+            {clipStudioOpen && audioPath && (
+                <ClipStudio
+                    audioPath={audioPath}
+                    segmentText={markdown.split('# Full Transcript')[0] || ''}
+                    startTime={0}
+                    endTime={90}
+                    onClose={() => setClipStudioOpen(false)}
+                />
             )}
         </div>
     );

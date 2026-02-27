@@ -1,13 +1,17 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import requests
 import os
+import uuid
+from pathlib import Path
 from .services.downloader import download_space
 from .services.processor import analyze_audio, OPENROUTER_API_KEY
 from .services.thread_generator import generate_thread
 from .services.scout import ScoutService
+from .services.clip_renderer import render_clip, CLIPS_DIR, LOGOS_DIR
 from .config import ConfigManager
 
 app = FastAPI()
@@ -45,6 +49,17 @@ class ScoutRequest(BaseModel):
 class ThreadRequest(BaseModel):
     transcript: str
     segments: str
+
+class RenderClipRequest(BaseModel):
+    audio_path: str
+    start_time: float
+    end_time: float
+    layout: str = "centered_waveform"
+    title: str = "Space2Thread"
+    caption_text: str = ""
+    logo_path: Optional[str] = None
+    logo_position: str = "top-right"
+    colors: Optional[dict] = None
 
 @app.get("/api/models")
 async def get_models():
@@ -145,7 +160,52 @@ async def process_space(request: AnalyzeRequest):
         print(f"Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/render-clip")
+async def api_render_clip(request: RenderClipRequest):
+    """Renders a video clip from a segment."""
+    try:
+        output_path = render_clip(
+            audio_path=request.audio_path,
+            start_time=request.start_time,
+            end_time=request.end_time,
+            layout=request.layout,
+            title=request.title,
+            caption_text=request.caption_text,
+            logo_path=request.logo_path,
+            logo_position=request.logo_position,
+            colors=request.colors,
+        )
+        filename = os.path.basename(output_path)
+        return {"clip_url": f"/api/clips/{filename}", "filename": filename}
+    except Exception as e:
+        print(f"Clip Render Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/upload-logo")
+async def upload_logo(file: UploadFile = File(...)):
+    """Upload a logo/profile image for use in clips."""
+    try:
+        ext = Path(file.filename).suffix or ".png"
+        filename = f"logo_{uuid.uuid4().hex[:8]}{ext}"
+        filepath = str(LOGOS_DIR / filename)
+        
+        with open(filepath, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        return {"logo_path": filepath, "filename": filename}
+    except Exception as e:
+        print(f"Logo Upload Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/clips/{filename}")
+async def serve_clip(filename: str):
+    """Serve a rendered clip for download."""
+    filepath = str(CLIPS_DIR / filename)
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Clip not found")
+    return FileResponse(filepath, media_type="video/mp4", filename=filename)
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-

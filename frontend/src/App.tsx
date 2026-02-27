@@ -75,6 +75,7 @@ function App() {
                     <ResultsDisplay
                         markdown={result.markdown}
                         threadResult={result.threadResult}
+                        audioPath={result.audioPath}
                     />
                 )}
             </main>
