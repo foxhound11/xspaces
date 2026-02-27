@@ -1,0 +1,9 @@
+{
+    "models": {
+        "transcript": "google/gemini-2.0-flash-001",
+        "extract": "google/gemini-2.0-flash-001",
+        "verify": "google/gemini-2.0-flash-001",
+        "thread_writer": "google/gemini-2.0-flash-001",
+        "thread_judge": "google/gemini-2.0-flash-001"
+    }
+}

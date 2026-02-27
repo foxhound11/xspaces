@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+python-dotenv
+yt-dlp
+requests
+python-multipart
+# For better async support if needed
+aiofiles

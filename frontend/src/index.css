@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #0a0a0a;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+  width: 100vw;
+  background: radial-gradient(circle at top left, #1a1a2e, #0a0a0a);
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+}
+
+/* Tailwind 4 theme extensions can be done in CSS */
+@theme {
+  --color-background: #0a0a0a;
+  --color-primary: #3b82f6;
+  --color-secondary: #a855f7;
+  --color-accent: #06b6d4;
+  --color-surface: rgba(255, 255, 255, 0.05);
+
+  --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-glow: glow 2s ease-in-out infinite alternate;
+
+  @keyframes glow {
+    0% {
+      box-shadow: 0 0 5px #3b82f6, 0 0 10px #3b82f6;
+    }
+
+    100% {
+      box-shadow: 0 0 20px #a855f7, 0 0 30px #a855f7;
+    }
+  }
+}
