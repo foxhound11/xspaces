@@ -65,3 +65,27 @@ This script will automatically:
 - **Frontend:** React + TypeScript + Vite + Tailwind CSS
 - **Backend:** Python + FastAPI + Uvicorn
 - **AI/LLM:** OpenRouter (Gemini 2.0 Flash by default)
+
+## 🧠 Why I Built This & What I Learned
+
+At first glance, this might look like a simple audio scraper, but the real focus of this project was tackling three complex engineering problems: **programmatic video rendering**, **perfect audio-text synchronization**, and **autonomous AI evaluation loops**.
+
+Here are the core technical challenges this project solves:
+
+### 1. Programmatic Video Generation (Remotion)
+Building TikTok/Reels-style clips manually takes hours. I wanted to build an engine that generates them entirely in code. By integrating **Remotion**, the app takes an audio file, a transcript, and a brand configuration, and programmatically renders a React component tree directly into an MP4 file. It handles dynamic waveform visualization and layout structures (like Split Screen or Podcast Card) purely through mathematics and React state, completely removing the need for traditional video editing software.
+
+### 2. The Karaoke Caption Synchronization Problem (Deepgram)
+Getting TikTok-style "karaoke" captions (where the exact word lights up as it's spoken) is notoriously difficult. Standard transcription models (like Whisper or default Gemini) drift out of sync over time or chunk timestamps too broadly (e.g., giving a timestamp for a whole 5-second sentence). 
+
+To solve this, I implemented the **Deepgram Nova-3 API**. Its architecture is specifically optimized for hyper-accurate, **word-level timestamps**. The backend parses Deepgram's precise JSON timing data and maps it to the Remotion video timeline, guaranteeing that the heavy, stylized captions strike on the exact millisecond the word is spoken without drifting.
+
+### 3. Multi-Agent LLM Architecture (Writer/Judge Loop)
+Most "AI Summarizers" just dump a transcript into an LLM with a "summarize this" prompt, resulting in generic, boring text that misses the nuance of the conversation. 
+
+Instead, I built an asynchronous **Writer/Judge evaluation loop**:
+1. **The Extractor:** First, an LLM analyzes the transcript specifically looking for high-signal, high-retention "viral hooks" and extracts only those segments.
+2. **The Writer:** A separate prompt takes those segments and drafts a human-like Twitter thread.
+3. **The Judge:** A critique model evaluates the drafted thread against strict virality and formatting rules. If the thread fails the check, the Judge feeds specific critique back to the Writer for a rewrite.
+
+This multi-agent iteration ensures the final output actually sounds like a native platform user, not a robotic script, and guarantees the highest quality highlights are extracted without hallucinating or losing context.
