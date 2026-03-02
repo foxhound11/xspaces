@@ -3,6 +3,7 @@ import {
     AbsoluteFill,
     Audio,
     Img,
+    staticFile,
     useCurrentFrame,
     useVideoConfig,
     interpolate,
@@ -10,19 +11,24 @@ import {
 } from "remotion";
 import type { ClipProps } from "../Root";
 import { Waveform } from "../components/Waveform";
-import { Captions } from "../components/Captions";
+import { SimpleEvenCaptions, TimestampedCaptions, KaraokeCaptions } from "../components/Captions";
 
 export const SplitScreen: React.FC<ClipProps> = ({
-    audioSrc,
+    audioFile,
     title,
     captionText,
-    logoSrc,
+    captions,
+    words,
+    logoFile,
     colors,
+    durationInSeconds,
 }) => {
     const frame = useCurrentFrame();
     const { fps } = useVideoConfig();
 
-    // Left panel slide-in
+    const audioSrc = staticFile(audioFile);
+    const logoSrc = logoFile ? staticFile(logoFile) : undefined;
+
     const leftSlide = spring({ frame, fps, config: { damping: 18 } });
     const leftX = interpolate(leftSlide, [0, 1], [-540, 0]);
 
@@ -35,10 +41,8 @@ export const SplitScreen: React.FC<ClipProps> = ({
                 overflow: "hidden",
             }}
         >
-            {/* Audio */}
-            {audioSrc && <Audio src={audioSrc} />}
+            <Audio src={audioSrc} />
 
-            {/* Left Panel - Image / Logo */}
             <div
                 style={{
                     width: "50%",
@@ -85,13 +89,12 @@ export const SplitScreen: React.FC<ClipProps> = ({
                                 fontWeight: 800,
                             }}
                         >
-                            🎙️
+                            S2T
                         </span>
                     </div>
                 )}
             </div>
 
-            {/* Right Panel - Waveform + Captions */}
             <div
                 style={{
                     width: "50%",
@@ -104,7 +107,6 @@ export const SplitScreen: React.FC<ClipProps> = ({
                     padding: 40,
                 }}
             >
-                {/* Title */}
                 <h1
                     style={{
                         fontFamily: "'Inter', sans-serif",
@@ -120,7 +122,6 @@ export const SplitScreen: React.FC<ClipProps> = ({
                     {title}
                 </h1>
 
-                {/* Waveform */}
                 <Waveform
                     audioSrc={audioSrc}
                     barColor={colors.waveform}
@@ -130,14 +131,31 @@ export const SplitScreen: React.FC<ClipProps> = ({
                     height={180}
                 />
 
-                {/* Captions */}
-                <Captions
-                    text={captionText}
-                    textColor={colors.text}
-                    fontSize={32}
-                    maxWidth={450}
-                    wordsPerChunk={4}
-                />
+                {words && words.length > 0 ? (
+                    <KaraokeCaptions
+                        words={words}
+                        textColor={colors.text}
+                        highlightColor={colors.waveform}
+                        fontSize={36}
+                        maxWidth={450}
+                    />
+                ) : captions && captions.length > 0 ? (
+                    <TimestampedCaptions
+                        captions={captions}
+                        textColor={colors.text}
+                        fontSize={32}
+                        maxWidth={450}
+                    />
+                ) : (
+                    <SimpleEvenCaptions
+                        text={captionText}
+                        durationInSeconds={durationInSeconds}
+                        textColor={colors.text}
+                        fontSize={32}
+                        maxWidth={450}
+                        wordsPerChunk={4}
+                    />
+                )}
             </div>
         </AbsoluteFill>
     );

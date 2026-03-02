@@ -3,51 +3,15 @@ Thread Generator Service
 Generates tweet thread summaries using a writer/judge feedback loop.
 """
 import json
-import requests
 from typing import Optional
 from ..config import ConfigManager
+from ..utils import send_to_openrouter, get_env_var
 
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MAX_ITERATIONS = 3
 
 
-def _get_api_key():
-    """Get API key from environment."""
-    import os
-    from dotenv import load_dotenv
-    env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
-    load_dotenv(env_path)
-    return os.getenv("OPENROUTER_API_KEY")
-
-
-def _send_to_openrouter(messages: list, model: str, api_key: str) -> str:
-    """Helper to send requests to OpenRouter."""
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://space2thread.app",
-        "X-Title": "Space2Thread"
-    }
-    payload = {
-        "model": model,
-        "messages": messages
-    }
-    
-    print(f"Sending request to OpenRouter ({model})...")
-    response = requests.post(OPENROUTER_URL, headers=headers, data=json.dumps(payload))
-    
-    if response.status_code != 200:
-        raise Exception(f"OpenRouter API Error ({response.status_code}): {response.text}")
-
-    result = response.json()
-    try:
-        return result["choices"][0]["message"]["content"]
-    except (KeyError, IndexError):
-        raise Exception(f"Unexpected response format: {result}")
-
-
 def _call_writer(transcript: str, segments: str, prompt: str, model: str, 
-                 api_key: str, previous_feedback: Optional[str] = None) -> str:
+                 previous_feedback: Optional[str] = None) -> str:
     """Call the writer LLM to generate a thread draft."""
     
     user_content = f"""# Transcript
@@ -70,10 +34,10 @@ Please rewrite the thread addressing this feedback."""
         {"role": "user", "content": user_content}
     ]
     
-    return _send_to_openrouter(messages, model, api_key)
+    return send_to_openrouter(messages, model)
 
 
-def _call_judge(thread: str, prompt: str, model: str, api_key: str) -> dict:
+def _call_judge(thread: str, prompt: str, model: str) -> dict:
     """Call the judge LLM to evaluate the thread. Returns parsed JSON."""
     
     messages = [
@@ -81,7 +45,7 @@ def _call_judge(thread: str, prompt: str, model: str, api_key: str) -> dict:
         {"role": "user", "content": f"Evaluate this tweet thread:\n\n{thread}"}
     ]
     
-    response = _send_to_openrouter(messages, model, api_key)
+    response = send_to_openrouter(messages, model)
     
     # Parse JSON from response (handle potential markdown code blocks)
     response_clean = response.strip()
@@ -114,8 +78,7 @@ def generate_thread(transcript: str, segments: str) -> dict:
             "feedback_history": list # All feedback received
         }
     """
-    api_key = _get_api_key()
-    if not api_key:
+    if not get_env_var("OPENROUTER_API_KEY"):
         raise Exception("OPENROUTER_API_KEY not found in .env")
     
     # Load config
@@ -143,13 +106,13 @@ def generate_thread(transcript: str, segments: str) -> dict:
         print(f"Calling writer ({writer_model})...")
         draft = _call_writer(
             transcript, segments, writer_prompt, writer_model, 
-            api_key, previous_feedback
+            previous_feedback
         )
         print("Draft generated.")
         
         # Step 2: Judge the draft
         print(f"Calling judge ({judge_model})...")
-        judge_result = _call_judge(draft, judge_prompt, judge_model, api_key)
+        judge_result = _call_judge(draft, judge_prompt, judge_model)
         print(f"Judge result: approved={judge_result.get('approved')}, score={judge_result.get('score')}")
         
         if judge_result.get("approved", False):

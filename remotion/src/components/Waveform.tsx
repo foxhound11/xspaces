@@ -1,10 +1,5 @@
 import React from "react";
-import {
-    useCurrentFrame,
-    useVideoConfig,
-    Audio,
-    staticFile,
-} from "remotion";
+import { useCurrentFrame, useVideoConfig } from "remotion";
 import { useAudioData, visualizeAudio } from "@remotion/media-utils";
 
 type WaveformProps = {
@@ -16,6 +11,11 @@ type WaveformProps = {
     height?: number;
 };
 
+function nearestPowerOfTwo(n: number): number {
+    for (const p of [32, 64, 128, 256]) if (p >= n) return p;
+    return 256;
+}
+
 export const Waveform: React.FC<WaveformProps> = ({
     audioSrc,
     barColor,
@@ -26,23 +26,34 @@ export const Waveform: React.FC<WaveformProps> = ({
 }) => {
     const frame = useCurrentFrame();
     const { fps } = useVideoConfig();
-
     const audioData = useAudioData(audioSrc);
 
-    if (!audioData) {
-        return null;
-    }
+    if (!audioData) return null;
 
-    const visualization = visualizeAudio({
+    // Use half the barCount as samples — we'll mirror them for a centred look
+    const half = Math.ceil(barCount / 2);
+    const sampleCount = nearestPowerOfTwo(half);
+    const halfRaw = visualizeAudio({
         fps,
         frame,
         audioData,
-        numberOfSamples: barCount,
+        numberOfSamples: sampleCount,
         smoothing: true,
-    });
+    }).slice(0, half);
 
-    const barWidth = (width / barCount) * 0.7;
-    const gap = (width / barCount) * 0.3;
+    // Mirror: [low..high] + reversed [high..low] → bars spread from left to right
+    // with the most active (low freq / speech) bars visible throughout
+    const raw = [...halfRaw, ...[...halfRaw].reverse()];
+
+    const maxAmp = Math.max(...raw, 0.001);
+    // Speech audio has very low amplitudes (0.01-0.05 range).
+    // Amplify strongly so bars are always visibly animated.
+    const gain = Math.min(20, 0.8 / maxAmp);
+
+    const barWidth = (width / barCount) * 0.65;
+    const gap = (width / barCount) * 0.35;
+    // Minimum bar height so there's always a visible bar even during pauses
+    const minBarHeight = height * 0.08;
 
     return (
         <div
@@ -55,21 +66,19 @@ export const Waveform: React.FC<WaveformProps> = ({
                 height: `${height}px`,
             }}
         >
-            {visualization.map((amp, i) => {
-                const barHeight = Math.max(4, amp * height * 0.9);
+            {raw.map((amp, i) => {
+                const boosted = Math.max(minBarHeight, Math.min(height * 0.95, amp * gain * height));
                 const radius = style === "rounded" ? barWidth / 2 : 2;
-
                 return (
                     <div
                         key={i}
                         style={{
                             width: `${barWidth}px`,
-                            height: `${barHeight}px`,
+                            height: `${boosted}px`,
                             backgroundColor: barColor,
                             borderRadius: `${radius}px`,
-                            transition: "height 0.05s ease",
-                            opacity: 0.7 + amp * 0.3,
-                            boxShadow: `0 0 ${Math.floor(amp * 15)}px ${barColor}40`,
+                            opacity: 0.4 + (boosted / height) * 0.6,
+                            boxShadow: `0 0 ${Math.floor((boosted / height) * 16)}px ${barColor}50`,
                         }}
                     />
                 );

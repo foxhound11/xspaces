@@ -1,13 +1,20 @@
+import React from "react";
 import { Composition } from "remotion";
 import { CenteredWaveform } from "./compositions/CenteredWaveform";
 import { SplitScreen } from "./compositions/SplitScreen";
 import { PodcastCard } from "./compositions/PodcastCard";
 
 export type ClipProps = {
-    audioSrc: string;
+    /** Filename in public/ directory */
+    audioFile: string;
     title: string;
     captionText: string;
-    logoSrc?: string;
+    /** Word-level timestamps → KaraokeCaptions (TikTok style) */
+    words?: { text: string; start: number; end: number }[] | null;
+    /** Timed captions from transcription — used by TimestampedCaptions for accurate sync */
+    captions?: { text: string; start: number; end: number }[] | null;
+    /** Filename in public/ directory (optional) */
+    logoFile?: string | null;
     logoPosition?: "top-left" | "top-right" | "bottom-left" | "bottom-right";
     colors: {
         background: string;
@@ -22,10 +29,10 @@ const FPS = 30;
 
 export const RemotionRoot: React.FC = () => {
     const defaultProps: ClipProps = {
-        audioSrc: "",
+        audioFile: "test.mp3",
         title: "Space2Thread",
         captionText: "",
-        logoSrc: undefined,
+        logoFile: null,
         logoPosition: "top-right",
         colors: {
             background: "#0a0a0a",

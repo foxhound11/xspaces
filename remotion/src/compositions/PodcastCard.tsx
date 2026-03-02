@@ -3,6 +3,7 @@ import {
     AbsoluteFill,
     Audio,
     Img,
+    staticFile,
     useCurrentFrame,
     useVideoConfig,
     interpolate,
@@ -10,19 +11,24 @@ import {
 } from "remotion";
 import type { ClipProps } from "../Root";
 import { Waveform } from "../components/Waveform";
-import { Captions } from "../components/Captions";
+import { SimpleEvenCaptions, TimestampedCaptions, KaraokeCaptions } from "../components/Captions";
 
 export const PodcastCard: React.FC<ClipProps> = ({
-    audioSrc,
+    audioFile,
     title,
     captionText,
-    logoSrc,
+    captions,
+    words,
+    logoFile,
     colors,
+    durationInSeconds,
 }) => {
     const frame = useCurrentFrame();
     const { fps } = useVideoConfig();
 
-    // Card scale-in animation
+    const audioSrc = staticFile(audioFile);
+    const logoSrc = logoFile ? staticFile(logoFile) : undefined;
+
     const cardScale = spring({ frame, fps, config: { damping: 15, mass: 0.8 } });
     const scale = interpolate(cardScale, [0, 1], [0.8, 1]);
     const opacity = interpolate(cardScale, [0, 1], [0, 1]);
@@ -38,10 +44,8 @@ export const PodcastCard: React.FC<ClipProps> = ({
                 overflow: "hidden",
             }}
         >
-            {/* Audio */}
-            {audioSrc && <Audio src={audioSrc} />}
+            <Audio src={audioSrc} />
 
-            {/* Background glow */}
             <div
                 style={{
                     position: "absolute",
@@ -53,7 +57,6 @@ export const PodcastCard: React.FC<ClipProps> = ({
                 }}
             />
 
-            {/* Card */}
             <div
                 style={{
                     display: "flex",
@@ -71,7 +74,6 @@ export const PodcastCard: React.FC<ClipProps> = ({
                     maxWidth: 700,
                 }}
             >
-                {/* Profile Image */}
                 {logoSrc ? (
                     <Img
                         src={logoSrc}
@@ -97,11 +99,10 @@ export const PodcastCard: React.FC<ClipProps> = ({
                             border: `4px solid ${colors.waveform}40`,
                         }}
                     >
-                        <span style={{ fontSize: 60 }}>🎙️</span>
+                        <span style={{ fontSize: 60, color: colors.text, opacity: 0.6, fontWeight: 800 }}>S2T</span>
                     </div>
                 )}
 
-                {/* Speaker Name / Title */}
                 <h1
                     style={{
                         fontFamily: "'Inter', sans-serif",
@@ -116,7 +117,6 @@ export const PodcastCard: React.FC<ClipProps> = ({
                     {title}
                 </h1>
 
-                {/* Mini label */}
                 <div
                     style={{
                         padding: "6px 20px",
@@ -135,11 +135,10 @@ export const PodcastCard: React.FC<ClipProps> = ({
                             letterSpacing: "0.1em",
                         }}
                     >
-                        🔴 LIVE
+                        LIVE
                     </span>
                 </div>
 
-                {/* Waveform */}
                 <Waveform
                     audioSrc={audioSrc}
                     barColor={colors.waveform}
@@ -150,7 +149,6 @@ export const PodcastCard: React.FC<ClipProps> = ({
                 />
             </div>
 
-            {/* Captions - below the card */}
             <div
                 style={{
                     position: "absolute",
@@ -160,12 +158,30 @@ export const PodcastCard: React.FC<ClipProps> = ({
                     width: "100%",
                 }}
             >
-                <Captions
-                    text={captionText}
-                    textColor={colors.text}
-                    fontSize={38}
-                    maxWidth={900}
-                />
+                {words && words.length > 0 ? (
+                    <KaraokeCaptions
+                        words={words}
+                        textColor={colors.text}
+                        highlightColor={colors.waveform}
+                        fontSize={40}
+                        maxWidth={900}
+                    />
+                ) : captions && captions.length > 0 ? (
+                    <TimestampedCaptions
+                        captions={captions}
+                        textColor={colors.text}
+                        fontSize={38}
+                        maxWidth={900}
+                    />
+                ) : (
+                    <SimpleEvenCaptions
+                        text={captionText}
+                        durationInSeconds={durationInSeconds}
+                        textColor={colors.text}
+                        fontSize={38}
+                        maxWidth={900}
+                    />
+                )}
             </div>
         </AbsoluteFill>
     );

@@ -2,6 +2,7 @@ import React from "react";
 import {
     AbsoluteFill,
     Audio,
+    staticFile,
     useCurrentFrame,
     useVideoConfig,
     interpolate,
@@ -9,21 +10,26 @@ import {
 } from "remotion";
 import type { ClipProps } from "../Root";
 import { Waveform } from "../components/Waveform";
-import { Captions } from "../components/Captions";
+import { SimpleEvenCaptions, TimestampedCaptions, KaraokeCaptions } from "../components/Captions";
 import { Logo } from "../components/Logo";
 
 export const CenteredWaveform: React.FC<ClipProps> = ({
-    audioSrc,
+    audioFile,
     title,
     captionText,
-    logoSrc,
+    captions,
+    words,
+    logoFile,
     logoPosition = "top-right",
     colors,
+    durationInSeconds,
 }) => {
     const frame = useCurrentFrame();
     const { fps } = useVideoConfig();
 
-    // Title animation - slides in from top
+    const audioSrc = staticFile(audioFile);
+    const logoSrc = logoFile ? staticFile(logoFile) : undefined;
+
     const titleProgress = spring({ frame, fps, config: { damping: 20 } });
     const titleY = interpolate(titleProgress, [0, 1], [-50, 0]);
     const titleOpacity = interpolate(titleProgress, [0, 1], [0, 1]);
@@ -39,10 +45,8 @@ export const CenteredWaveform: React.FC<ClipProps> = ({
                 overflow: "hidden",
             }}
         >
-            {/* Audio */}
-            {audioSrc && <Audio src={audioSrc} />}
+            <Audio src={audioSrc} />
 
-            {/* Subtle radial gradient background */}
             <div
                 style={{
                     position: "absolute",
@@ -51,10 +55,8 @@ export const CenteredWaveform: React.FC<ClipProps> = ({
                 }}
             />
 
-            {/* Logo */}
             {logoSrc && <Logo src={logoSrc} position={logoPosition} size={90} />}
 
-            {/* Title */}
             <div
                 style={{
                     position: "absolute",
@@ -79,7 +81,6 @@ export const CenteredWaveform: React.FC<ClipProps> = ({
                 </h1>
             </div>
 
-            {/* Waveform - center */}
             <div style={{ marginTop: 40 }}>
                 <Waveform
                     audioSrc={audioSrc}
@@ -91,7 +92,6 @@ export const CenteredWaveform: React.FC<ClipProps> = ({
                 />
             </div>
 
-            {/* Captions - bottom */}
             <div
                 style={{
                     position: "absolute",
@@ -101,12 +101,30 @@ export const CenteredWaveform: React.FC<ClipProps> = ({
                     width: "100%",
                 }}
             >
-                <Captions
-                    text={captionText}
-                    textColor={colors.text}
-                    fontSize={40}
-                    maxWidth={900}
-                />
+                {words && words.length > 0 ? (
+                    <KaraokeCaptions
+                        words={words}
+                        textColor={colors.text}
+                        highlightColor={colors.waveform}
+                        fontSize={42}
+                        maxWidth={900}
+                    />
+                ) : captions && captions.length > 0 ? (
+                    <TimestampedCaptions
+                        captions={captions}
+                        textColor={colors.text}
+                        fontSize={40}
+                        maxWidth={900}
+                    />
+                ) : (
+                    <SimpleEvenCaptions
+                        text={captionText}
+                        durationInSeconds={durationInSeconds}
+                        textColor={colors.text}
+                        fontSize={40}
+                        maxWidth={900}
+                    />
+                )}
             </div>
         </AbsoluteFill>
     );

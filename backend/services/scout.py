@@ -15,18 +15,8 @@ if os.path.exists(env_path):
 class ScoutService:
     @staticmethod
     def _get_api_token():
-        # Try env var
-        token = os.getenv("APIFY_API_TOKEN")
-        if token:
-            return token
-        
-        # Fallback: manual parsing
-        if os.path.exists(env_path):
-            with open(env_path, 'r') as f:
-                for line in f:
-                    if line.startswith("APIFY_API_TOKEN="):
-                        return line.split("=", 1)[1].strip()
-        return None
+        from ..utils import get_env_var
+        return get_env_var("APIFY_API_TOKEN")
 
     @staticmethod
     def find_latest_space(username: str = "elonmusk") -> str:

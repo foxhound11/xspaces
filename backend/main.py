@@ -8,7 +8,7 @@ import os
 import uuid
 from pathlib import Path
 from .services.downloader import download_space
-from .services.processor import analyze_audio, OPENROUTER_API_KEY
+from .services.processor import analyze_audio, transcribe_full_space
 from .services.thread_generator import generate_thread
 from .services.scout import ScoutService
 from .services.clip_renderer import render_clip, CLIPS_DIR, LOGOS_DIR
@@ -108,6 +108,59 @@ async def api_generate_thread(request: ThreadRequest):
         print(f"Thread Generation Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+class DownloadRequest(BaseModel):
+    url: str
+
+@app.post("/api/download")
+def download_mp3(request: DownloadRequest):
+    """Downloads a Twitter/X Space as MP3 only — no analysis or thread generation."""
+    try:
+        print(f"[Download Only] Received request for: {request.url}")
+        audio_path = download_space(request.url)
+        filename = os.path.basename(audio_path)
+        print(f"[Download Only] Complete: {filename}")
+        return {
+            "filename": filename,
+            "download_url": f"/api/files/{filename}"
+        }
+    except Exception as e:
+        print(f"Download Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/files/{filename}")
+async def serve_file(filename: str):
+    """Serves a downloaded MP3 file for browser download."""
+    filepath = os.path.join("downloads", filename)
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(
+        filepath,
+        media_type="audio/mpeg",
+        filename=filename,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+@app.post("/api/transcribe")
+def transcribe_space(request: DownloadRequest):
+    """Downloads a Space and transcribes it — no segment extraction or threads."""
+    try:
+        print(f"[Transcribe] Received request for: {request.url}")
+        audio_path = download_space(request.url)
+        print(f"[Transcribe] Downloaded: {audio_path}")
+        
+        transcript = transcribe_full_space(audio_path)
+        filename = os.path.basename(audio_path)
+        print(f"[Transcribe] Complete.")
+        return {
+            "transcript": transcript,
+            "audio_path": audio_path,
+            "filename": filename,
+            "download_url": f"/api/files/{filename}"
+        }
+    except Exception as e:
+        print(f"Transcribe Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/process", response_model=AnalyzeResponse)
 async def process_space(request: AnalyzeRequest):
     try:
@@ -125,15 +178,8 @@ async def process_space(request: AnalyzeRequest):
         print("Generating tweet thread...")
         thread_result = None
         try:
-            # Split report to get transcript and segments
-            # Report format: segments + "---\n\n# Full Transcript\n" + transcript
-            if "# Full Transcript" in report:
-                parts = report.split("# Full Transcript")
-                segments = parts[0].strip()
-                transcript = parts[1].strip() if len(parts) > 1 else ""
-            else:
-                segments = report
-                transcript = ""
+            segments = report.get("segments", "")
+            transcript = report.get("transcript", "")
             
             if transcript:
                 result = generate_thread(transcript, segments)
@@ -151,7 +197,7 @@ async def process_space(request: AnalyzeRequest):
             # Continue without thread - don't fail the whole request
         
         return AnalyzeResponse(
-            markdown_report=report,
+            markdown_report=report.get("markdown_report", ""),
             audio_path=audio_path,
             thread_result=thread_result
         )
