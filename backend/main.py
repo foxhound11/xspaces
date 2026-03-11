@@ -1,13 +1,13 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import requests
 import os
 import uuid
 from pathlib import Path
-from .services.downloader import download_space
+from .services.downloader import download_space, download_space_generator, get_video_formats, download_video_generator, VIDEOS_DIR
 from .services.processor import analyze_audio, transcribe_full_space
 from .services.thread_generator import generate_thread
 from .services.scout import ScoutService
@@ -111,21 +111,18 @@ async def api_generate_thread(request: ThreadRequest):
 class DownloadRequest(BaseModel):
     url: str
 
+class VideoDownloadRequest(BaseModel):
+    url: str
+    quality: str = "1080"
+
 @app.post("/api/download")
 def download_mp3(request: DownloadRequest):
-    """Downloads a Twitter/X Space as MP3 only — no analysis or thread generation."""
-    try:
-        print(f"[Download Only] Received request for: {request.url}")
-        audio_path = download_space(request.url)
-        filename = os.path.basename(audio_path)
-        print(f"[Download Only] Complete: {filename}")
-        return {
-            "filename": filename,
-            "download_url": f"/api/files/{filename}"
-        }
-    except Exception as e:
-        print(f"Download Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    """Downloads a Twitter/X Space as MP3 only — streams progress as JSON lines."""
+    print(f"[Download Only/Streaming] Received request for: {request.url}")
+    return StreamingResponse(
+        download_space_generator(request.url),
+        media_type="application/x-ndjson"
+    )
 
 @app.get("/api/files/{filename}")
 async def serve_file(filename: str):
@@ -255,3 +252,40 @@ async def serve_clip(filename: str):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+# ─────────────────────────────────────────────
+# YouTube / Video Download Endpoints
+# ─────────────────────────────────────────────
+
+@app.post("/api/video-formats")
+def api_video_formats(request: DownloadRequest):
+    """Extracts available video qualities for a URL."""
+    try:
+        print(f"[Video Formats] Fetching formats for: {request.url}")
+        result = get_video_formats(request.url)
+        return result
+    except Exception as e:
+        print(f"Video Formats Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/download-video")
+def api_download_video(request: VideoDownloadRequest):
+    """Downloads a video as MP4 — streams progress as JSON lines."""
+    print(f"[Video Download/Streaming] URL: {request.url}, Quality: {request.quality}")
+    return StreamingResponse(
+        download_video_generator(request.url, request.quality),
+        media_type="application/x-ndjson"
+    )
+
+@app.get("/api/videos/{filename}")
+async def serve_video(filename: str):
+    """Serves a downloaded video file for browser download."""
+    filepath = os.path.join(VIDEOS_DIR, filename)
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Video not found")
+    return FileResponse(
+        filepath,
+        media_type="video/mp4",
+        filename=filename,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )

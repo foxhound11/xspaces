@@ -3,7 +3,7 @@ import { InputSection } from './components/InputSection';
 import { FeatureCards, type FeatureType } from './components/FeatureCards';
 import { ResultsDisplay } from './components/ResultsDisplay';
 import { ConfigPanel } from './components/ConfigPanel';
-import { Sparkles, Loader2 } from 'lucide-react';
+import { Sparkles, Loader2, Video, CheckCircle, Download } from 'lucide-react';
 
 interface ThreadResult {
     thread: string;
@@ -27,6 +27,14 @@ function App() {
     const [result, setResult] = useState<ProcessResult | null>(null);
     const [loadingFeature, setLoadingFeature] = useState<FeatureType | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
+    const [downloadStatus, setDownloadStatus] = useState<string>('');
+
+    // Video download state
+    const [videoFormats, setVideoFormats] = useState<{title: string, thumbnail: string, duration: number, qualities: {height: number, label: string}[]} | null>(null);
+    const [videoLoading, setVideoLoading] = useState(false);
+    const [videoDownloading, setVideoDownloading] = useState(false);
+    const [videoResult, setVideoResult] = useState<{filename: string} | null>(null);
 
     const triggerFileSave = (downloadUrl: string, filename: string) => {
         const link = document.createElement('a');
@@ -43,6 +51,8 @@ function App() {
         setLoadingFeature(feature);
         setError(null);
         setResult(null);
+        setDownloadProgress(null);
+        setDownloadStatus('');
 
         try {
             let response;
@@ -52,6 +62,31 @@ function App() {
             if (feature === 'download') endpoint = '/api/download';
             else if (feature === 'transcribe') endpoint = '/api/transcribe';
             else if (feature === 'extract' || feature === 'thread') endpoint = '/api/process';
+            else if (feature === 'video') {
+                // Video feature: fetch formats first, then show quality picker
+                setLoadingFeature(null);
+                setVideoLoading(true);
+                setVideoFormats(null);
+                setVideoResult(null);
+                try {
+                    const fmtRes = await fetch('http://127.0.0.1:8000/api/video-formats', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url }),
+                    });
+                    if (!fmtRes.ok) {
+                        const errData = await fmtRes.json().catch(() => ({}));
+                        throw new Error(errData.detail || 'Failed to fetch formats');
+                    }
+                    const fmtData = await fmtRes.json();
+                    setVideoFormats(fmtData);
+                } catch (err: any) {
+                    setError(err.message || 'Failed to fetch video formats');
+                } finally {
+                    setVideoLoading(false);
+                }
+                return;
+            }
 
             if (!endpoint) throw new Error("Feature not implemented yet");
 
@@ -66,39 +101,141 @@ function App() {
                 throw new Error(errData.detail || `Error: ${response.statusText}`);
             }
 
-            const data = await response.json();
-
-            // Handle specific feature responses
             if (feature === 'download') {
-                setResult({
-                    type: 'download',
-                    filename: data.filename,
-                    downloadUrl: data.download_url
-                });
-                triggerFileSave(data.download_url, data.filename);
-            }
-            else if (feature === 'transcribe') {
-                setResult({
-                    type: 'transcribe',
-                    transcript: data.transcript,
-                    audioPath: data.audio_path,
-                    filename: data.filename,
-                    downloadUrl: data.download_url
-                });
-            }
-            else if (feature === 'extract' || feature === 'thread') {
-                setResult({
-                    type: feature, // Remember which tab should be active by default
-                    markdown: data.markdown_report,
-                    audioPath: data.audio_path,
-                    threadResult: data.thread_result || null
-                });
+                const reader = response.body?.getReader();
+                const decoder = new TextDecoder();
+                if (!reader) throw new Error("Failed to read stream");
+
+                let buffer = '';
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        try {
+                            const data = JSON.parse(line);
+                            if (data.status === 'downloading') {
+                                setDownloadProgress(data.progress);
+                                setDownloadStatus(`Downloading: ${data.progress}% (${data.speed})`);
+                            } else if (data.status === 'processing') {
+                                setDownloadProgress(100);
+                                setDownloadStatus('Converting audio to MP3...');
+                            } else if (data.status === 'completed') {
+                                setResult({
+                                    type: 'download',
+                                    filename: data.filename,
+                                    downloadUrl: `/api/files/${data.filename}`
+                                });
+                                triggerFileSave(`/api/files/${data.filename}`, data.filename);
+                                setDownloadStatus('Complete!');
+                            } else if (data.status === 'error') {
+                                throw new Error(data.message || 'Download error');
+                            }
+                        } catch (e) {
+                            if (e instanceof Error && e.message !== 'Unexpected end of JSON input') {
+                                throw e;
+                            }
+                        }
+                    }
+                }
+            } else {
+                const data = await response.json();
+
+                // Handle specific feature responses
+                if (feature === 'transcribe') {
+                    setResult({
+                        type: 'transcribe',
+                        transcript: data.transcript,
+                        audioPath: data.audio_path,
+                        filename: data.filename,
+                        downloadUrl: data.download_url
+                    });
+                }
+                else if (feature === 'extract' || feature === 'thread') {
+                    setResult({
+                        type: feature, // Remember which tab should be active by default
+                        markdown: data.markdown_report,
+                        audioPath: data.audio_path,
+                        threadResult: data.thread_result || null
+                    });
+                }
             }
 
         } catch (err: any) {
             setError(err.message || 'Something went wrong');
         } finally {
             setLoadingFeature(null);
+            setTimeout(() => setDownloadProgress(null), 3000);
+        }
+    };
+
+    const handleVideoDownload = async (quality: string) => {
+        if (!url.trim()) return;
+        setVideoDownloading(true);
+        setVideoResult(null);
+        setDownloadProgress(null);
+        setDownloadStatus('');
+        setError(null);
+
+        try {
+            const response = await fetch('http://127.0.0.1:8000/api/download-video', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url, quality }),
+            });
+
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.detail || `Error: ${response.statusText}`);
+            }
+
+            const reader = response.body?.getReader();
+            const decoder = new TextDecoder();
+            if (!reader) throw new Error('Failed to read stream');
+
+            let buffer = '';
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    try {
+                        const data = JSON.parse(line);
+                        if (data.status === 'downloading') {
+                            setDownloadProgress(data.progress);
+                            setDownloadStatus(`Downloading: ${data.progress}% (${data.speed})`);
+                        } else if (data.status === 'processing') {
+                            setDownloadProgress(100);
+                            setDownloadStatus('Merging video and audio...');
+                        } else if (data.status === 'completed') {
+                            setVideoResult({ filename: data.filename });
+                            triggerFileSave(`/api/videos/${data.filename}`, data.filename);
+                            setDownloadStatus('Complete!');
+                        } else if (data.status === 'error') {
+                            throw new Error(data.message || 'Download error');
+                        }
+                    } catch (e) {
+                        if (e instanceof Error && e.message !== 'Unexpected end of JSON input') {
+                            throw e;
+                        }
+                    }
+                }
+            }
+        } catch (err: any) {
+            setError(err.message || 'Video download failed');
+        } finally {
+            setVideoDownloading(false);
+            setTimeout(() => setDownloadProgress(null), 3000);
         }
     };
 
@@ -127,8 +264,10 @@ function App() {
                         // Reset results when URL changes to prevent confusion
                         setResult(null);
                         setError(null);
+                        setVideoFormats(null);
+                        setVideoResult(null);
                     }}
-                    disabled={loadingFeature !== null}
+                    disabled={loadingFeature !== null || videoDownloading}
                 />
 
                 {/* 2. Feature Selection Grid */}
@@ -140,14 +279,24 @@ function App() {
 
                 {/* Loading State Overlay */}
                 {loadingFeature && (
-                    <div className="w-full p-6 rounded-2xl bg-blue-900/20 border border-blue-500/30 text-blue-300 flex items-center justify-center gap-4 animate-in fade-in slide-in-from-bottom-4">
-                        <Loader2 className="w-6 h-6 animate-spin" />
-                        <span className="font-medium text-lg">
-                            {loadingFeature === 'download' && "Downloading MP3... this depends on Space length."}
-                            {loadingFeature === 'transcribe' && "Transcribing Space... reading the audio."}
-                            {loadingFeature === 'extract' && "Extracting highlights... finding the viral moments."}
-                            {loadingFeature === 'thread' && "Writing Tweet Thread... analyzing and drafting iterations."}
-                        </span>
+                    <div className="w-full p-6 rounded-2xl bg-blue-900/20 border border-blue-500/30 text-blue-300 flex flex-col items-center justify-center gap-4 animate-in fade-in slide-in-from-bottom-4">
+                        <div className="flex items-center gap-4">
+                            <Loader2 className="w-6 h-6 animate-spin" />
+                            <span className="font-medium text-lg">
+                                {loadingFeature === 'download' && (downloadStatus || "Starting download...")}
+                                {loadingFeature === 'transcribe' && "Transcribing Space... reading the audio."}
+                                {loadingFeature === 'extract' && "Extracting highlights... finding the viral moments."}
+                                {loadingFeature === 'thread' && "Writing Tweet Thread... analyzing and drafting iterations."}
+                            </span>
+                        </div>
+                        {loadingFeature === 'download' && downloadProgress !== null && (
+                            <div className="w-full max-w-md bg-gray-900/50 rounded-full h-3 mt-2 overflow-hidden border border-blue-500/20 relative">
+                                <div
+                                    className="bg-gradient-to-r from-blue-600 to-cyan-400 h-full rounded-full transition-all duration-300 ease-out absolute left-0 top-0"
+                                    style={{ width: `${downloadProgress}%` }}
+                                />
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -161,6 +310,107 @@ function App() {
                 {/* 3. Results Area */}
                 {result && !loadingFeature && (
                     <ResultsDisplay result={result} />
+                )}
+
+                {/* 4. Video Quality Selector */}
+                {(videoLoading || videoFormats || videoDownloading || videoResult) && (
+                    <div className="w-full rounded-2xl bg-gradient-to-br from-red-950/30 to-rose-950/20 border border-red-500/20 p-8 animate-in fade-in slide-in-from-bottom-8 duration-500">
+                        <div className="flex items-center gap-3 mb-6">
+                            <div className="p-3 bg-red-500/20 text-red-400 rounded-xl">
+                                <Video className="w-6 h-6" />
+                            </div>
+                            <h2 className="text-2xl font-bold text-white">Download Video</h2>
+                        </div>
+
+                        {/* Loading formats */}
+                        {videoLoading && (
+                            <div className="flex items-center gap-3 text-red-300">
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                                <span>Fetching available qualities...</span>
+                            </div>
+                        )}
+
+                        {/* Video info + Quality picker */}
+                        {videoFormats && !videoDownloading && !videoResult && (
+                            <div className="flex flex-col gap-6">
+                                {/* Video metadata */}
+                                <div className="flex gap-4 items-start">
+                                    {videoFormats.thumbnail && (
+                                        <img
+                                            src={videoFormats.thumbnail}
+                                            alt="Thumbnail"
+                                            className="w-40 h-24 object-cover rounded-xl border border-white/10 flex-shrink-0"
+                                        />
+                                    )}
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-white leading-tight">{videoFormats.title}</h3>
+                                        {videoFormats.duration > 0 && (
+                                            <p className="text-gray-400 text-sm mt-1">
+                                                {Math.floor(videoFormats.duration / 60)}:{String(videoFormats.duration % 60).padStart(2, '0')} minutes
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Quality buttons */}
+                                <div>
+                                    <p className="text-gray-400 text-sm font-medium mb-3">Select Quality</p>
+                                    <div className="flex flex-wrap gap-3">
+                                        {videoFormats.qualities.map((q) => (
+                                            <button
+                                                key={q.height}
+                                                onClick={() => handleVideoDownload(String(q.height))}
+                                                className="px-5 py-2.5 rounded-xl font-bold text-sm transition-all duration-200
+                                                    bg-red-600/20 text-red-300 border border-red-500/30
+                                                    hover:bg-red-600/40 hover:border-red-400/50 hover:scale-105 active:scale-95
+                                                    cursor-pointer"
+                                            >
+                                                {q.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Downloading progress */}
+                        {videoDownloading && (
+                            <div className="flex flex-col items-center gap-4">
+                                <div className="flex items-center gap-3 text-red-300">
+                                    <Loader2 className="w-5 h-5 animate-spin" />
+                                    <span className="font-medium">{downloadStatus || 'Starting video download...'}</span>
+                                </div>
+                                {downloadProgress !== null && (
+                                    <div className="w-full max-w-md bg-gray-900/50 rounded-full h-3 overflow-hidden border border-red-500/20 relative">
+                                        <div
+                                            className="bg-gradient-to-r from-red-600 to-rose-400 h-full rounded-full transition-all duration-300 ease-out absolute left-0 top-0"
+                                            style={{ width: `${downloadProgress}%` }}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Download complete */}
+                        {videoResult && !videoDownloading && (
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <CheckCircle className="w-7 h-7 text-emerald-400" />
+                                    <div>
+                                        <p className="text-emerald-300 font-bold text-lg">Video Downloaded!</p>
+                                        <p className="text-emerald-400/70 text-sm">{videoResult.filename}</p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => triggerFileSave(`/api/videos/${videoResult.filename}`, videoResult.filename)}
+                                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-all hover:scale-105 active:scale-95"
+                                >
+                                    <Download className="w-4 h-4" />
+                                    Save Again
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 )}
             </main>
 

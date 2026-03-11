@@ -48,12 +48,10 @@ const features: Omit<FeatureCardProps, 'onClick' | 'isLoading' | 'activeFeature'
     },
     {
         id: 'video',
-        title: 'Audio Clips',
-        description: 'Create waveform videos for TikTok.',
+        title: 'Download Video',
+        description: 'Download YouTube videos in any quality.',
         icon: <Video className="w-6 h-6" />,
-        colorClass: 'from-gray-700 to-gray-600 border-gray-600/30',
-        disabled: true,
-        comingSoon: true
+        colorClass: 'from-red-600 to-rose-600 border-red-500/30'
     }
 ];
 
