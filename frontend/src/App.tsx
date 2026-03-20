@@ -22,6 +22,12 @@ interface ProcessResult {
     downloadUrl?: string;
 }
 
+interface DownloadedFile {
+    filename: string;
+    downloadUrl: string;
+    audioPath?: string;
+}
+
 function App() {
     const [url, setUrl] = useState('');
     const [result, setResult] = useState<ProcessResult | null>(null);
@@ -29,6 +35,12 @@ function App() {
     const [error, setError] = useState<string | null>(null);
     const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
     const [downloadStatus, setDownloadStatus] = useState<string>('');
+    const [downloadPhase, setDownloadPhase] = useState<'download' | 'convert' | null>(null);
+    const [fragmentInfo, setFragmentInfo] = useState<string>('');
+
+    // Pipeline state — persists after download
+    const [downloadedFile, setDownloadedFile] = useState<DownloadedFile | null>(null);
+    const [completedFeatures, setCompletedFeatures] = useState<Set<FeatureType>>(new Set());
 
     // Video download state
     const [videoFormats, setVideoFormats] = useState<{title: string, thumbnail: string, duration: number, qualities: {height: number, label: string}[]} | null>(null);
@@ -48,11 +60,19 @@ function App() {
     const handleFeatureSelect = async (feature: FeatureType) => {
         if (!url.trim()) return;
 
+        // If download is already completed and they click it again, just re-save the file
+        if (feature === 'download' && downloadedFile) {
+            triggerFileSave(downloadedFile.downloadUrl, downloadedFile.filename);
+            return;
+        }
+
         setLoadingFeature(feature);
         setError(null);
         setResult(null);
         setDownloadProgress(null);
         setDownloadStatus('');
+        setDownloadPhase(null);
+        setFragmentInfo('');
 
         try {
             let response;
@@ -120,12 +140,27 @@ function App() {
                         try {
                             const data = JSON.parse(line);
                             if (data.status === 'downloading') {
+                                setDownloadPhase('download');
                                 setDownloadProgress(data.progress);
-                                setDownloadStatus(`Downloading: ${data.progress}% (${data.speed})`);
+                                // Show fragment info if available
+                                const fragText = data.total_fragments > 0
+                                    ? `Fragment ${data.fragment}/${data.total_fragments} — `
+                                    : '';
+                                setFragmentInfo(fragText);
+                                setDownloadStatus(`${fragText}${data.progress}% (${data.speed})`);
                             } else if (data.status === 'processing') {
+                                setDownloadPhase('convert');
                                 setDownloadProgress(100);
-                                setDownloadStatus('Converting audio to MP3...');
+                                setFragmentInfo('');
+                                setDownloadStatus('Converting to MP3...');
                             } else if (data.status === 'completed') {
+                                const fileInfo: DownloadedFile = {
+                                    filename: data.filename,
+                                    downloadUrl: `/api/files/${data.filename}`,
+                                    audioPath: data.filepath,
+                                };
+                                setDownloadedFile(fileInfo);
+                                setCompletedFeatures(prev => new Set(prev).add('download'));
                                 setResult({
                                     type: 'download',
                                     filename: data.filename,
@@ -133,6 +168,7 @@ function App() {
                                 });
                                 triggerFileSave(`/api/files/${data.filename}`, data.filename);
                                 setDownloadStatus('Complete!');
+                                setDownloadPhase(null);
                             } else if (data.status === 'error') {
                                 throw new Error(data.message || 'Download error');
                             }
@@ -148,6 +184,7 @@ function App() {
 
                 // Handle specific feature responses
                 if (feature === 'transcribe') {
+                    setCompletedFeatures(prev => new Set(prev).add('transcribe'));
                     setResult({
                         type: 'transcribe',
                         transcript: data.transcript,
@@ -157,6 +194,7 @@ function App() {
                     });
                 }
                 else if (feature === 'extract' || feature === 'thread') {
+                    setCompletedFeatures(prev => new Set(prev).add(feature));
                     setResult({
                         type: feature, // Remember which tab should be active by default
                         markdown: data.markdown_report,
@@ -170,7 +208,11 @@ function App() {
             setError(err.message || 'Something went wrong');
         } finally {
             setLoadingFeature(null);
-            setTimeout(() => setDownloadProgress(null), 3000);
+            setTimeout(() => {
+                setDownloadProgress(null);
+                setDownloadPhase(null);
+                setFragmentInfo('');
+            }, 3000);
         }
     };
 
@@ -180,6 +222,7 @@ function App() {
         setVideoResult(null);
         setDownloadProgress(null);
         setDownloadStatus('');
+        setDownloadPhase(null);
         setError(null);
 
         try {
@@ -261,11 +304,13 @@ function App() {
                     url={url}
                     onUrlChange={(newUrl) => {
                         setUrl(newUrl);
-                        // Reset results when URL changes to prevent confusion
+                        // Reset everything when URL changes
                         setResult(null);
                         setError(null);
                         setVideoFormats(null);
                         setVideoResult(null);
+                        setDownloadedFile(null);
+                        setCompletedFeatures(new Set());
                     }}
                     disabled={loadingFeature !== null || videoDownloading}
                 />
@@ -275,9 +320,10 @@ function App() {
                     onSelectFeature={handleFeatureSelect}
                     loadingFeature={loadingFeature}
                     hasUrl={url.trim().length > 0}
+                    completedFeatures={completedFeatures}
                 />
 
-                {/* Loading State Overlay */}
+                {/* Loading State with Two-Phase Progress */}
                 {loadingFeature && (
                     <div className="w-full p-6 rounded-2xl bg-blue-900/20 border border-blue-500/30 text-blue-300 flex flex-col items-center justify-center gap-4 animate-in fade-in slide-in-from-bottom-4">
                         <div className="flex items-center gap-4">
@@ -289,12 +335,45 @@ function App() {
                                 {loadingFeature === 'thread' && "Writing Tweet Thread... analyzing and drafting iterations."}
                             </span>
                         </div>
-                        {loadingFeature === 'download' && downloadProgress !== null && (
-                            <div className="w-full max-w-md bg-gray-900/50 rounded-full h-3 mt-2 overflow-hidden border border-blue-500/20 relative">
-                                <div
-                                    className="bg-gradient-to-r from-blue-600 to-cyan-400 h-full rounded-full transition-all duration-300 ease-out absolute left-0 top-0"
-                                    style={{ width: `${downloadProgress}%` }}
-                                />
+
+                        {/* Two-phase progress bar for downloads */}
+                        {loadingFeature === 'download' && (
+                            <div className="w-full max-w-lg flex flex-col gap-3">
+                                {/* Phase indicators */}
+                                <div className="flex items-center gap-6 text-sm">
+                                    <div className={`flex items-center gap-2 transition-all ${downloadPhase === 'download' ? 'text-blue-300 font-bold' : downloadPhase === 'convert' ? 'text-emerald-400' : 'text-gray-500'}`}>
+                                        {downloadPhase === 'convert' ? (
+                                            <CheckCircle className="w-4 h-4 text-emerald-400" />
+                                        ) : (
+                                            <div className={`w-4 h-4 rounded-full border-2 ${downloadPhase === 'download' ? 'border-blue-400 bg-blue-400/30' : 'border-gray-600'}`} />
+                                        )}
+                                        <span>Download</span>
+                                    </div>
+                                    <div className="flex-1 h-px bg-gray-700" />
+                                    <div className={`flex items-center gap-2 transition-all ${downloadPhase === 'convert' ? 'text-blue-300 font-bold' : 'text-gray-500'}`}>
+                                        <div className={`w-4 h-4 rounded-full border-2 ${downloadPhase === 'convert' ? 'border-blue-400 bg-blue-400/30 animate-pulse' : 'border-gray-600'}`} />
+                                        <span>Convert to MP3</span>
+                                    </div>
+                                </div>
+
+                                {/* Progress bar */}
+                                {downloadProgress !== null && (
+                                    <div className="w-full bg-gray-900/50 rounded-full h-3 overflow-hidden border border-blue-500/20 relative">
+                                        <div
+                                            className={`h-full rounded-full transition-all duration-300 ease-out absolute left-0 top-0 ${
+                                                downloadPhase === 'convert'
+                                                    ? 'bg-gradient-to-r from-emerald-600 to-green-400 animate-pulse w-full'
+                                                    : 'bg-gradient-to-r from-blue-600 to-cyan-400'
+                                            }`}
+                                            style={downloadPhase !== 'convert' ? { width: `${downloadProgress}%` } : undefined}
+                                        />
+                                    </div>
+                                )}
+
+                                {/* Fragment detail text */}
+                                {fragmentInfo && downloadPhase === 'download' && (
+                                    <p className="text-xs text-gray-500 text-center">{fragmentInfo}{downloadProgress}%</p>
+                                )}
                             </div>
                         )}
                     </div>

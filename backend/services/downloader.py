@@ -39,14 +39,14 @@ def download_space_generator(url: str):
     def progress_hook(d):
         if d['status'] == 'downloading':
             percent = 0.0
+            frag_index = d.get('frag_index', 0)
+            total_frags = d.get('total_frags', 0)
             if d.get('total_bytes') or d.get('total_bytes_estimate'):
                 total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
                 downloaded = d.get('downloaded_bytes', 0)
                 percent = (downloaded / total) * 100 if total > 0 else 0
-            elif d.get('total_frags'):
-                total = d.get('total_frags', 0)
-                downloaded = d.get('frag_index', 0)
-                percent = (downloaded / total) * 100 if total > 0 else 0
+            elif total_frags:
+                percent = (frag_index / total_frags) * 100 if total_frags > 0 else 0
             else:
                 percent_str = d.get('_percent_str', '0.0%')
                 if isinstance(percent_str, str):
@@ -58,13 +58,17 @@ def download_space_generator(url: str):
                 
             q.put({
                 "status": "downloading",
+                "phase": "download",
                 "progress": round(percent, 2),
+                "fragment": frag_index,
+                "total_fragments": total_frags,
                 "speed": re.sub(r'\x1b\[[0-9;]*m', '', d.get('_speed_str', 'N/A')).strip() if isinstance(d.get('_speed_str'), str) else 'N/A',
                 "eta": d.get('_eta_str', 'N/A')
             })
         elif d['status'] == 'finished':
             q.put({
                 "status": "processing",
+                "phase": "convert",
                 "progress": 100,
                 "message": "Converting audio to MP3..."
             })
@@ -81,8 +85,6 @@ def download_space_generator(url: str):
                 'preferredquality': '192',
             }],
             'progress_hooks': [progress_hook],
-            'quiet': True,
-            'no_warnings': True,
         }
         
         try:
@@ -120,6 +122,7 @@ def download_space_generator(url: str):
                     "cached": False
                 })
         except Exception as e:
+            print(f"[Space Download Error] {e}")
             q.put({
                 "status": "error",
                 "message": str(e)
